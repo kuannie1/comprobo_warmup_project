@@ -61,6 +61,7 @@ class TeleopNode(object):
         while not rospy.is_shutdown():
             self.getKey(key) 
             if (self.key != '\x03'):
+                print(self.key)
                 if self.key in self.moveBindings.keys():
                     self.x, self.y, self.z, self.th = self.moveBindings[self.key]
                 else:
