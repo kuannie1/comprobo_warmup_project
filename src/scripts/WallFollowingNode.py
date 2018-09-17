@@ -7,6 +7,7 @@ from sensor_msgs.msg import LaserScan
 from geometry_msgs.msg import Twist, Vector3
 import math
 
+
 class WallFollowingNode(object):
     """ This node moves forward until it detects an obstacle, rotates itself to be parallel to the obstacle, and moves forward again """
     def __init__(self):
@@ -18,11 +19,11 @@ class WallFollowingNode(object):
         self.frontrange = None
         self.a270 = None
         
-    def proportional(self, k_p, p0, ideal_value):
-        """ implementing proportional control equation: p_out = k_p*e(t) +p0 """
-        error = output-ideal_value
-        return k_p*error + p0
-        # incomplete!!!
+    # def proportional(self, k_p, p0, ideal_value):
+    #     """ implementing proportional control equation: p_out = k_p*e(t) +p0 """
+    #     error = output-ideal_value
+    #     return k_p*error + p0
+    #     # incomplete!!!
 
     
     def process_scan(self, m):
@@ -39,18 +40,26 @@ class WallFollowingNode(object):
         #filtering zeros out with max distance 
         self.frontrange = [10000 if (num == 0) else num for num in rawrange]
         self.smallestangle = self.find_angle(self.frontrange)
-        print("smallestangle: ", self.smallestangle)
 
 
     def run(self):
         r = rospy.Rate(10)
         while not rospy.is_shutdown():
+            # run PID control
             r.sleep()
 
     def find_angle(self, anglerange):
         """ Finds the index of the smallest distance and returns the index/angle of that smallest distance"""
         minDistance = min(anglerange)
         return anglerange.index(minDistance)
+
+    def orient_tilt(self):
+        """ Based on smallest angle, make the robot align itself left or right """
+        pass
+        # r = rospy.Rate(10)
+        # if (self.smallestangle < 90):
+        #     # rotate smallestangle clockwise to left
+        #     pass
 
 
 if __name__ == '__main__':
