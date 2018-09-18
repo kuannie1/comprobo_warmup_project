@@ -6,7 +6,9 @@ import rviz
 from sensor_msgs.msg import LaserScan
 from geometry_msgs.msg import Twist, Vector3
 import math
-
+import tf.transformations as tft
+from tf.transformations import euler_from_quaternion, quaternion_from_euler
+from nav_msgs.msg import Odometry
 
 class WallFollowingNode(object):
     """ This node moves forward until it detects an obstacle, rotates itself to be parallel to the obstacle, and moves forward again """
@@ -14,52 +16,57 @@ class WallFollowingNode(object):
         rospy.init_node('wall_follower_node')
         self.sub = rospy.Subscriber('/scan', LaserScan, self.process_scan)
         self.pub = rospy.Publisher('/cmd_vel', Twist, queue_size=10)
-        # checks left and right of robot so it knows where to turn AWAY from
-        self.a90 = None
-        self.frontrange = None
-        self.a270 = None
-        
-    # def proportional(self, k_p, p0, ideal_value):
-    #     """ implementing proportional control equation: p_out = k_p*e(t) +p0 """
-    #     error = output-ideal_value
-    #     return k_p*error + p0
-    #     # incomplete!!!
+        # self.command = Twist()
+        self.current_rad = 0.0 # yaw in radian form
+        self.kp = 0.3
+        self.obj_distance = None
+        self.threshold = 1.0
 
-    
     def process_scan(self, m):
-        # gets distance at index 90 degrees counterclockwise. if its not zero, update value.
-        if m.ranges[90] != 0.0:
-            self.a90 = m.ranges[90]
-        # gets distance at -90 degrees
-        if m.ranges[270] != 0.0:
-            self.a270 = m.ranges[270]
-        # seperate angles in quadrants. combining them together
-        firstrange = list(reversed(m.ranges[:90]))
-        secondrange = list(reversed(m.ranges[270:]))
-        rawrange = firstrange + secondrange
+        """ Method that saves the distances at 90, 270, and angle with smallest distance """
         #filtering zeros out with max distance 
-        self.frontrange = [10000 if (num == 0) else num for num in rawrange]
-        self.smallestangle = self.find_angle(self.frontrange)
+        self.frontrange = [10000 if (num == 0) else num for num in m.ranges]
+        self.obj_distance, self.smallestangle = self.find_angle(self.frontrange)
 
 
     def run(self):
-        r = rospy.Rate(10)
-        while not rospy.is_shutdown():
-            # run PID control
-            r.sleep()
+		r = rospy.Rate(10)
+		while not rospy.is_shutdown():
+			if (self.obj_distance > self.threshold):
+				m = Twist(linear=Vector3(x=0.2, y=0, z=0), angular=Vector3(x=0, y= 0, z=0))
+				self.pub.publish(m)
+			else:
+				self.pub.publish(Twist())
+			r.sleep()
+
+    # def rotate(self, target_rad, acceptableErrorDeg = 2.0):
+    #     """ Calculates the angle needed to twist continuously """
+    #     r = rospy.Rate(10)
+    #     while not rospy.is_shutdown():
+    #         angleerror = ((target_rad - self.current_rad) + math.pi) % (2*math.pi) - math.pi  # Ensure angle is between -pi and pi
+    #         if abs(angleerror) < math.radians(acceptableErrorDeg):
+    #             break
+    #         else:
+    #             self.command.angular.z = (self.kp * angleerror) 
+    #             self.pub.publish(self.command)
+    #             # printing the message at 2Hz (once per 0.5 seconds)
+    #             rospy.loginfo_throttle(0.5, "target={} current={} error={}".format(math.degrees(target_rad), math.degrees(self.current_rad), angleerror))
+    #         r.sleep()
 
     def find_angle(self, anglerange):
         """ Finds the index of the smallest distance and returns the index/angle of that smallest distance"""
         minDistance = min(anglerange)
-        return anglerange.index(minDistance)
+        return (minDistance, anglerange.index(minDistance))
 
-    def orient_tilt(self):
-        """ Based on smallest angle, make the robot align itself left or right """
-        pass
-        # r = rospy.Rate(10)
-        # if (self.smallestangle < 90):
-        #     # rotate smallestangle clockwise to left
-        #     pass
+    # def get_rotation(self, m):
+    #     """ Obtaining variables about current state """
+    #     orientation_q = m.pose.pose.orientation
+    #     orientation_list = [orientation_q.x, orientation_q.y, orientation_q.z, orientation_q.w]
+    #     (roll, pitch, yaw) = euler_from_quaternion(orientation_list)
+    #     self.current_rad = yaw
+    #     current_deg = math.degrees(self.current_rad)
+    #     rospy.loginfo_throttle(0.5, "current_deg: {}".format(current_deg))
+
 
 
 if __name__ == '__main__':
