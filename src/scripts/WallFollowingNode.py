@@ -47,9 +47,11 @@ class WallFollowingNode(object):
         while not rospy.is_shutdown():
             rospy.loginfo_throttle(0.5, "threshold={} objdistance={}".format(self.threshold, self.objdistance))
             if (self.objdistance > self.threshold):
+                print("hi")
                 m = Twist(linear=Vector3(x=.1, y=0, z=0), angular=Vector3(x=0, y= 0, z=0))
                 self.pub.publish(m)
             else:
+                print("hi?")
                 self.orient_wall()
                 # self.rotate()
             r.sleep()
@@ -86,9 +88,9 @@ class WallFollowingNode(object):
         dist1 = self.distances[90+ang_range]
         dist2 = self.distances[90-ang_range]
         while not rospy.is_shutdown():
-            disterror = math.fabs(dist1-dist2)
+            disterror = dist1-dist2
             if disterror > acceptableErrorDist:
-                self.command.angular.z = 0.1
+                self.command.angular.z = self.kp * disterror # proportional control of error
                 self.pub.publish(self.command)
                 # printing the message at 2Hz (once per 0.5 seconds)
                 rospy.loginfo_throttle(0.5, "dist1={} dist2={} difference={}".format(dist1, dist2, disterror))
