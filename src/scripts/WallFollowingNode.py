@@ -9,46 +9,49 @@ from nav_msgs.msg import Odometry
 import math 
 import tf.transformations as tft
 from tf.transformations import euler_from_quaternion, quaternion_from_euler
+import numpy as np
 
-def get_first_nonzero_val(values):
-    for i in range(len(values)):
-        num = values[i]
-        if num != 0:
-            return num
-    return 0
+def get_min_distance(values):
+    values_np = np.asarray(values)
+    values_np[values_np == 0] = np.nan # or use np.nan
+    return np.amin(values_np)
 
 class WallFollowingNode(object):
     """ This node moves forward at a fixed pace and stops when it detects an object within a certain distance. """
     def __init__(self, threshold):
         self.objdistance = 2
+        self.distances = [0] * 361
         rospy.init_node('wallfollow_node')
-        self.sub = rospy.Subscriber('/scan', LaserScan, self.process_scan)
+        self.sub_laser = rospy.Subscriber('/scan', LaserScan, self.process_scan)
+        self.sub_odom = rospy.Subscriber('/odom', Odometry, self.get_rotation)
         self.pub = rospy.Publisher('/cmd_vel', Twist, queue_size=10)
         self.threshold = threshold # distance
         
         self.current_rad = 0.0
 
         # variables from RotateNode.py file:
-        self.target_deg = 90
+        # self.target_deg = 90
         self.kp = 0.3
         
         self.command = Twist()
+        
 
     def process_scan(self, m):
-        self.objdistance = get_first_nonzero_val(m.ranges)
+        self.objdistance = get_min_distance(m.ranges)
         self.angle = m.ranges.index(self.objdistance)
-        print("angle: ", self.angle)
+        self.distances = m.ranges
 
 
     def run(self):
         r = rospy.Rate(10)
         while not rospy.is_shutdown():
-            print("objdistance: ", self.objdistance)
+            rospy.loginfo_throttle(0.5, "threshold={} objdistance={}".format(self.threshold, self.objdistance))
             if (self.objdistance > self.threshold):
                 m = Twist(linear=Vector3(x=.1, y=0, z=0), angular=Vector3(x=0, y= 0, z=0))
                 self.pub.publish(m)
             else:
-                self.rotate()
+                self.orient_wall()
+                # self.rotate()
             r.sleep()
 
 
@@ -61,23 +64,36 @@ class WallFollowingNode(object):
         current_deg = math.degrees(self.current_rad)
         rospy.loginfo_throttle(0.5, "current_deg: {}".format(current_deg))
     
-    def rotate(self, acceptableErrorDeg = 2.0):
-        """ Calculates the angle needed to twist continuously """
-        r = rospy.Rate(10)
-        self.sub = rospy.Subscriber('/odom', Odometry, self.get_rotation)
-        while not rospy.is_shutdown():
-            target_rad = math.radians(self.target_deg)
-            angleerror = ((target_rad - self.current_rad) + math.pi) % (2*math.pi) - math.pi  # Ensure angle is between -pi and pi
+    # def rotate(self, target. acceptableErrorDeg = 2.0):
+    #     """ Calculates the angle needed to twist continuously """
+    #     r = rospy.Rate(10)
+        
+    #     while not rospy.is_shutdown():
+    #         target_rad = math.radians(target)
+    #         angleerror = ((target_rad - self.current_rad) + math.pi) % (2*math.pi) - math.pi  # Ensure angle is between -pi and pi
             
-            if abs(angleerror) < math.radians(acceptableErrorDeg):
-                return
-            else:
-                self.command.angular.z = (self.kp * angleerror) 
+    #         if abs(angleerror) < math.radians(acceptableErrorDeg):
+    #             return
+    #         else:
+    #             self.command.angular.z = (self.kp * angleerror) 
+    #             self.pub.publish(self.command)
+    #             # printing the message at 2Hz (once per 0.5 seconds)
+    #             rospy.loginfo_throttle(0.5, "target={} current={} error={}".format(target, math.degrees(self.current_rad), angleerror))
+    #         r.sleep()
+
+    def orient_wall(self, ang_range=10, acceptableErrorDist = 0.1):
+        """ Uses the distance between angles 90+30 and 90-30 to control the robot's orientation """
+        dist1 = self.distances[90+ang_range]
+        dist2 = self.distances[90-ang_range]
+        while not rospy.is_shutdown():
+            disterror = math.fabs(dist1-dist2)
+            if disterror > acceptableErrorDist:
+                self.command.angular.z = 0.1
                 self.pub.publish(self.command)
                 # printing the message at 2Hz (once per 0.5 seconds)
-                rospy.loginfo_throttle(0.5, "target={} current={} error={}".format(self.target_deg, math.degrees(self.current_rad), angleerror))
-            r.sleep()
-
+                rospy.loginfo_throttle(0.5, "dist1={} dist2={} difference={}".format(dist1, dist2, disterror))
+            else:
+                return
 
 if __name__ == '__main__':
     node = WallFollowingNode(1)
