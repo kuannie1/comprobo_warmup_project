@@ -11,18 +11,19 @@ import tf.transformations as tft
 from tf.transformations import euler_from_quaternion, quaternion_from_euler
 import numpy as np
 
+#to ignore zeros
 def get_min_distance(values):
     values_np = np.asarray(values)
     values_np[values_np == 0] = np.nan # or use np.nan
-    ret_val = np.partition(values_np,2)[2]
+    ret_val = np.partition(values_np,2)[2] #gets second least value in array
     print("get_min_distance", ret_val)
     return ret_val
 
 class WallFollowingNode(object):
     """ This node moves forward at a fixed pace and stops when it detects an object within a certain distance. """
     def __init__(self, threshold):
-        self.objdistance = 2
-        self.distances = [0] * 361
+        self.objdistance = 2 #makes sure inital object distance is greater than threshold to move forward
+        self.distances = [0] * 361 #indexes angles
         rospy.init_node('wallfollow_node')
         self.sub_laser = rospy.Subscriber('/scan', LaserScan, self.process_scan)
         self.sub_odom = rospy.Subscriber('/odom', Odometry, self.get_rotation)
@@ -33,12 +34,12 @@ class WallFollowingNode(object):
 
         # variables from RotateNode.py file:
         # self.target_deg = 90
-        self.kp = 0.3
+        self.kp = 0.01
         self.smallest_distance_angle = None
 
         self.command = Twist()
 
-
+    #input for laser subscriber, getting minimum distance and returning of that index (angle)
     def process_scan(self, m):
         self.objdistance = get_min_distance(m.ranges)
         self.smallest_distance_angle = m.ranges.index(self.objdistance)
@@ -52,23 +53,23 @@ class WallFollowingNode(object):
         while not rospy.is_shutdown():
             rospy.loginfo_throttle(0.5, "threshold={} objdistance={}".format(self.threshold, self.objdistance))
             if (self.objdistance > self.threshold):
-                print("hi")
+                #moves forward at rate of 0.1m/s and publishes command
                 m = Twist(linear=Vector3(x=.1, y=0, z=0), angular=Vector3(x=0, y= 0, z=0))
                 self.pub.publish(m)
             else:
-                print("hi?")
+                #rotates until parallel to wall
                 self.orient_wall()
                 # self.rotate()
             r.sleep()
 
-
+        #grabs information odometry topic
     def get_rotation(self, m):
         """ Obtaining variables about current state """
-        orientation_q = m.pose.pose.orientation
-        orientation_list = [orientation_q.x, orientation_q.y, orientation_q.z, orientation_q.w]
-        (roll, pitch, yaw) = euler_from_quaternion(orientation_list)
+        orientation_q = m.pose.pose.orientation #quaternion coordinates
+        orientation_list = [orientation_q.x, orientation_q.y, orientation_q.z, orientation_q.w] #parses q. coordinates
+        (roll, pitch, yaw) = euler_from_quaternion(orientation_list) #converts quaternion to euler coordinates
         self.current_rad = yaw
-        current_deg = math.degrees(self.current_rad)
+        current_deg = math.degrees(self.current_rad) #converts yaw to degrees
         rospy.loginfo_throttle(0.5, "current_deg: {}".format(current_deg))
 
     # def rotate(self, target. acceptableErrorDeg = 2.0):
@@ -88,38 +89,42 @@ class WallFollowingNode(object):
     #             rospy.loginfo_throttle(0.5, "target={} current={} error={}".format(target, math.degrees(self.current_rad), angleerror))
     #         r.sleep()
 
-    def orient_wall(self, ang_range=15, acceptableErrorDist = 0.1):
-        """ Uses the distance between angles 90+30 and 90-30 to control the robot's orientation """
+
+    def calculate_distance(self, ang_range=35):
         while not rospy.is_shutdown():
+            #3 pairs of distances: right, left, and front
             dist270_1 = self.distances[270+ang_range]
             dist270_2 = self.distances[270-ang_range]
             dist90_1 = self.distances[90+ang_range]
             dist90_2 = self.distances[90+ang_range]
-            dist0_1 = self.distances[ang_range]
-            dist0_2 = self.distances[-ang_range]
-
-
-            if 0.0 in [dist0_1, dist0_2]:
-                print("OH NO!  MISSING DATA")
+            prelimrange = ang_range
+            dist0_1 = self.distances[prelimrange]
+            dist0_2 = self.distances[-prelimrange]
 
             if dist0_1 > dist0_2:
-                disterror = dist270_1-dist270_2
+                disterror = dist270_1*100-dist270_2*100
             else:
-                disterror = dist90_1 - dist90_2
+                disterror = dist90_1*100- dist90_2*100
+            return disterror
 
+#looks for distance at index  ang_range and -ang_range. attempts to equalize distances to be parallel to wall
+    def orient_wall(self, ang_range=35, acceptableErrorDist = 0.05):
+        """ Uses the distance between angles 270or90+ang_range and 270or90-ang_range to control the robot's orientation """
+        while not rospy.is_shutdown():
+            disterror = self.calculate_distance()
             print("disterror", disterror)
             if abs(disterror) > acceptableErrorDist:
-                self.command.angular.z = -self.kp* disterror # proportional control of error
-                self.command.linear.x = 0.1
+                self.command.angular.z += -self.kp* disterror # proportional control of error
+                self.command.linear.x = 0.01
                 self.pub.publish(self.command)
                 # printing the message at 2Hz (once per 0.5 seconds)
             else:
                 print("SUCCESSFULLY ORIENTED")
                 self.command.angular.z = 0
-                self.command.linear.x = 0.01
+                self.command.linear.x = 0.1
                 self.pub.publish(self.command)
                 return
 
 if __name__ == '__main__':
-    node = WallFollowingNode(1)
+    node = WallFollowingNode(.5)
     node.run()
