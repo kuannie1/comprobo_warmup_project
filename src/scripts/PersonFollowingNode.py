@@ -16,42 +16,52 @@ from sklearn.cluster import MeanShift, estimate_bandwidth
 class PersonFollowingNode(object):
     def __init__(self):
         rospy.init_node('ObstacleAvoidingNode')
+        self.distances = None
         self.pub = rospy.Publisher('/cmd_vel', Twist, queue_size=10)
         self.sub_laser = rospy.Subscriber('/scan', LaserScan, self.process_scan)
         self.middle_angle = self.get_angle()
         self.current_rad = 0.0
-
+    
 
     def process_scan(self, m):
         """ Takes in the messages & assigns all the class variables """
-        distances = m.ranges
-        pass
+        self.distances = np.array(m.ranges)
+        
 
     def get_angle(self):
         """ Uses clustering to find 2 equal clusters & middle angle (update self.middle_angle)"""
-        
+        r = rospy.Rate(10)
+        while not rospy.is_shutdown():
+            if (self.distances != None):
+                
+                ms = MeanShift(bin_seeding=True)
+                ms.fit(self.distances.reshape(-1,1))
+                labels = ms.labels_
+                cluster_labels = np.unique(labels)
+                cluster_index_mapping = {}
+                print(labels)
+                # get the index (angle) associated with the cluster
+                for cluster_label in cluster_labels:
+                    indices = [i for i, x in enumerate(labels) if x == cluster_label]
+                    if len(indices) < 20:
+                        cluster_index_mapping[cluster_label] = np.average(indices)
+                    # np.average(indices)
+                print(cluster_index_mapping)
+                return np.average(cluster_index_mapping.values())
+            r.sleep()
+        return 0
+
 
     def rotate(self, angle):
         # make sure you 'break' out of it when the acceptable angle is reached
         """ Calculates the angle needed to twist continuously """
         currentTime = rospy.Time.now()
         stopTime = currentTime + rospy.Duration(math.radians(angle))
-        while currentTime<stopTime:
+        while (currentTime<stopTime):
             m = Twist(angular=Vector3(x=0, y= 0, z=1))
             currentTime = rospy.Time.now()
             self.pub.publish(m)
         self.pub.publish(Twist())
-
-    # def get_rotation(self, m):
-    #     """ Obtaining variables about current state """
-    #     orientation_q = m.pose.pose.orientation
-    #     orientation_list = [orientation_q.x, orientation_q.y, orientation_q.z, orientation_q.w]
-    #     (roll, pitch, yaw) = euler_from_quaternion(orientation_list)
-    #     self.current_rad = yaw
-    #     current_deg = math.degrees(self.current_rad)
-    #     rospy.loginfo_throttle(0.5, "current_deg: {}".format(current_deg))
-
-
 
     def travel_to_point(self):
         """ Orients itself to middle_angle and moves forward in that direction """
@@ -62,7 +72,8 @@ class PersonFollowingNode(object):
 
     def run(self):
         """ Uses Mean Shift clustering algorithm to find clusters and move to that centroid"""
-        self.travel_to_point()
+        while not rospy.is_shutdown():
+            self.travel_to_point()
 
 if __name__ == '__main__':
     node = PersonFollowingNode()
